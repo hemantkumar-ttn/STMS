@@ -1,0 +1,89 @@
+---
+description: STMS project conventions — MERN stack, status workflow, API patterns, testing
+alwaysApply: true
+---
+
+# STMS Project Rules
+
+Support Ticket Management System — full-stack MERN app (`client/` + `server/`).
+
+## Architecture
+
+- **Server:** Express → validators → controllers → Mongoose models; business logic in `server/src/utils/`
+- **Client:** pages → `TicketContext` (useReducer) → `client/src/services/api.js` → `/api` proxy
+- **Docs:** `api-contract.md`, `design-notes.md`, `acceptance-criteria.md`, `ai-prompts/`
+
+## Critical Business Rule — Status Workflow
+
+Status transitions are enforced **server-side** in `server/src/utils/statusTransitions.js`:
+
+```
+Open → In Progress, Cancelled
+In Progress → Resolved, Cancelled
+Resolved → Closed
+Closed, Cancelled → terminal (no transitions)
+```
+
+- Status changes **only** via `PATCH /api/tickets/:id/status`
+- `PUT /api/tickets/:id` must **reject** status field changes
+- Mirror allowed transitions in `client/src/utils/constants.js` for UI buttons
+- Any workflow change requires updates to utility, constants, tests, and `api-contract.md`
+
+## Backend Conventions
+
+- Thin controllers: `async/await`, delegate to utils, use `next(error)` — no inline `res.status()` for errors
+- Validation: `express-validator` in `server/src/middleware/validators.js`; use `.optional({ checkFalsy: true })` for optional query params
+- Errors: `AppError` + global `errorHandler`; response shape `{ success: false, message: "..." }`
+- Success: `{ success: true, data: ... }`; lists include `pagination`
+- Populate `createdBy` and `assignedTo` on ticket responses
+- Cascade delete comments on ticket delete (`Comment.deleteMany`)
+- Swagger JSDoc on routes in `server/src/routes/`
+
+## Frontend Conventions
+
+- All HTTP via `client/src/services/api.js` — no raw `fetch` or duplicate Axios instances
+- Use `cleanParams()` before GET requests (strip empty `status`, `search`, etc.)
+- State: React Context + `useReducer` only — no Redux/Zustand
+- Reuse components: `Layout`, `Badge`, `Alert`, `Spinner`, `TicketForm`, `TicketFilters`
+- Every page: loading (`Spinner`), empty state, success/error (`Alert`)
+- `baseURL: '/api'` — never hardcode `http://localhost:5000` in components
+
+## MVP Scope
+
+- **No authentication** — users are seed data; `createdBy` from request body
+- Do not add auth, rate limiting, or new frameworks unless explicitly requested
+
+## Testing & Verification
+
+- Server changes: add/update integration tests in `server/tests/`; run `cd server && npm test`
+- Test behavior (HTTP status + body), not internals; use `mongodb-memory-server`
+- Status workflow changes: cover all valid and invalid transitions
+- Client changes: run `cd client && npm run build` for large UI changes
+
+## Change Discipline
+
+- Minimal diff — solve the task, no unrelated refactors or cleanup
+- No new dependencies unless necessary; justify and pin versions
+- No secrets in code, tests, or docs; use `.env` (never commit `.env`)
+- Follow existing naming: `ticketController.js`, `ticketRoutes.js`, etc.
+
+## Git
+
+- Branch: `cursor/<ticket>-<summary>` — never push directly to `main`
+- Commits: `feat:`, `fix:`, `test:`, `docs:` prefixes
+
+## Anti-Patterns
+
+```javascript
+// ❌ Change status via PUT
+PUT /api/tickets/:id { status: "Closed" }
+
+// ✅ Dedicated status endpoint
+PATCH /api/tickets/:id/status { status: "Closed" }
+
+// ❌ Axios in a page component
+axios.get('http://localhost:5000/api/tickets')
+
+// ✅ API service layer
+import { getTickets } from '../services/api';
+```
